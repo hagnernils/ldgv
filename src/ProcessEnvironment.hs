@@ -2,37 +2,38 @@ module ProcessEnvironment where
 import Syntax as S
 import qualified Config as D
 import Control.Concurrent.Chan as C
-import Control.Monad.State as T
+import Control.Monad.Reader as R
 import Language.Javascript.JSaddle
 
 -- | the interpretation monad
-type InterpretM = T.StateT PEnv JSM Value
+type InterpretM = R.ReaderT Env JSM Value
+
+-- | maps identifiers to Values of expressions and stores
+type Env = [EnvEntry]
+type EnvEntry = (String, Value)
 
 -- | create a new entry (requires identifier to be unique)
-createPMEntry :: PEnvEntry -> T.StateT PEnv IO ()
-createPMEntry entry = do
-    liftIO $ D.traceIO $ "Creating Environment entry " ++ show entry
-    modify (\s1 -> entry : s1)
+--createEntry :: EnvEntry -> R.ReaderT Env IO ()
+--createEntry entry = do
+--    liftIO $ D.traceIO $ "Creating Environment entry " ++ show entry
+--    modify (\s1 -> entry : s1)
 
-extendEnv :: PEnvEntry -> PEnv -> PEnv
+extendEnv :: EnvEntry -> Env -> Env
 extendEnv e env = e:env
 
-pmlookup :: String -> InterpretM
-pmlookup id = do
-    identifiers <- get
+envlookup :: String -> InterpretM
+envlookup id = do
+    identifiers <- ask
     case lookup id identifiers of
         Nothing -> fail ("No Value for identifier " ++ id ++ " in ProcessEnvironment")
         Just val -> do
                     liftIO $ D.traceIO $ "Looked up " ++ id ++ " and found " ++ show val
                     >> pure val
 
--- | a Process Envronment maps identifiers to Values of expressions and stores
-type PEnv = [PEnvEntry]
-type PEnvEntry = (String, Value)
 
-printPEnv :: PEnv -> String
-printPEnv [] = ""
-printPEnv (x:xs) = show x ++ "\n" ++ printPEnv xs
+printEnv :: Env -> String
+printEnv [] = ""
+printEnv (x:xs) = show x ++ "\n" ++ printEnv xs
 
 -- | (Unit, Label, Int, Values of self-declared Data Types), Channels
 data Value = VUnit
