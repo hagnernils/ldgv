@@ -1,19 +1,17 @@
 {-# LANGUAGE OverloadedStrings #-}
-module Main where
+module Main (main) where
 
-import Control.Monad.IO.Class (liftIO)
 import qualified Data.Text as T
 import qualified Data.Map as Map
-import Reflex.Dom.Core
-import Language.Javascript.JSaddle
-import Language.Javascript.JSaddle (eval, liftJSM)
-
-import SyntaxDescription (syntaxdescription)
-import Interpreter as I
-import Typechecker (typecheck)
-import qualified Examples as E
 import Control.Exception (try, SomeException)
-import ProcessEnvironment as P (Value) 
+import Control.Monad.IO.Class (liftIO)
+import Language.Javascript.JSaddle
+import Reflex.Dom.Core
+import qualified Examples as E
+import qualified Interpreter as I
+import Environment (Value) 
+import SyntaxDescription (syntaxdescription)
+import Typechecker (typecheck)
 
 -- head of document
 widgetHead :: DomBuilder t m => m ()
@@ -63,9 +61,9 @@ main = mainWidgetWithHead widgetHead $ divClass "wrapper" $ do
                                                   -- clear the old output
                                                   resetOutput
                                                   -- interpret
-                                                  res <- try $ typecheck s >> I.interpret s :: IO (Either SomeException P.Value)
+                                                  res <- try $ typecheck s >> I.interpret s :: IO (Either SomeException Environment.Value)
                                                   -- print errors to the output if there are any
-                                                  return $ either (\v -> "Error: " ++ show v) (\v -> "Result: " ++ show v) res
+                                                  return $ either (\e -> "Error: " ++ show e) (\r -> "Result: " ++ show r) res
                                 ) <$> srcText)
 
         -- Dynamic Text and Textarea for output
@@ -97,9 +95,5 @@ setHtmlElement ident s = do
 setSrc :: String -> JSM ()
 setSrc = setHtmlElement "tSrc"
 
-setRes :: String -> JSM ()
-setRes = setHtmlElement "tResult"
-
 resetOutput :: JSM ()
 resetOutput = setHtmlElement "tOutput" ""
-

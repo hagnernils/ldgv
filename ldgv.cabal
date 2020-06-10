@@ -21,7 +21,7 @@ library
                  , Typechecker
                  , Config
                  , Examples
-                 , ProcessEnvironment
+                 , Environment
                  , SyntaxDescription
   other-modules: Tokens
                , Grammar
