@@ -31,10 +31,10 @@ interpret s = do
 evalDFun :: Decl -> InterpretM
 evalDFun decl@(DFun name [] expression _) = interpret' expression  -- a Declaration without free variables can be just interpreted
 evalDFun decl@(DFun name ((_, id, _):binds) e mty) = do
+                          -- call by name evaluation (the value of the argument is not copied)
                           env <- ask
                           let inner = DFun name binds e mty
-                          let f = \arg -> do
-                                 liftIO $ runReaderT (evalDFun inner) ((id, arg):env) 
+                          let f = \arg -> liftIO $ runReaderT (evalDFun inner) ((id, arg):env) 
                           return $ VFun f
 
 -- | interpret a single Expression
@@ -76,30 +76,30 @@ interpret' e =
       case v of
           (VPair s1 s2) -> return s2
   Lam m i t e -> do
-                 env <- ask 
-                 let f = \arg -> do
-                                 liftIO $ runReaderT (interpret' e) ((i, arg):env)
-                 return $ VFun f
+      -- call by name evaluation (the value of the argument is not copied)
+      env <- ask
+      let f = \arg -> liftIO $ runReaderT (interpret' e) ((i, arg):env)
+      return $ VFun f
   App e1 e2 -> do
-      -- interpret e1 first, because the innermost application
-      -- is the function with its first argument
+      -- the innermost App is the function with its first argument (App "funcname" val)
+      -- while outer Applications are of (App (VFun somefun) val)
       arg <- interpret' e2
       v <- interpret' e1
       -- check if the variable refers to a function label
       case v of
           VDecl d -> do
-            res <- evalDFun d
+            res <- evalDFun d  -- if yes, resolve the function name and apply the function
             case res of
               (VFun f) -> do
                 f arg
-          VFun f -> do  -- if not, we can apply the function directly
+          VFun f -> do  -- if not, apply the function directly
             f arg
           _ -> do
             fail $ "Trying to Apply " ++ show e2 ++ " to " ++ show e1
   Fork e -> do
-      penv <- ask
+      env <- ask
       liftIO $ forkIO (do
-                      res <- runReaderT (interpret' e) penv
+                      res <- runReaderT (interpret' e) env
                       C.traceIO "Ran a forked operation")
       return VUnit
   New t -> do
@@ -155,5 +155,3 @@ mathHelper op e1 e2 = do
     v2 <- interpret' e2
     return $ case (v1, v2) of
       (VInt a, VInt b) -> VInt (op a b)
-
-
