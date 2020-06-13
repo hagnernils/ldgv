@@ -1,5 +1,5 @@
 {-# LANGUAGE TemplateHaskell #-}
-module Examples where
+module Examples (examples, filenames) where
 
 import Data.Map (fromList)
 import Data.Text (unpack)

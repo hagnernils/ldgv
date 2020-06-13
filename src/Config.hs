@@ -1,9 +1,9 @@
 {-# LANGUAGE OverloadedStrings #-}
-module Config where
+module Config (trace, traceM, traceIO, printLn, Config.putStrLn, printResult, printDebug) where
 
 import qualified Debug.Trace as D
 import qualified Data.Text as T
-import Language.Javascript.JSaddle
+import Language.Javascript.JSaddle (JSM, eval)
 import PrettySyntax (Pretty, pshow)
 
 data DebugLevel = DebugNone | DebugAll
