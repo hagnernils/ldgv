@@ -22,10 +22,12 @@ widgetHead = do
 -- header for description and syntax
 header :: DomBuilder t m => m ()
 header = do
-    el "h1" $ text "Interpreter for label-dependent Session Types"
+    el "h1" $ text "Interpreter for Label Dependent Session Types"
     el "p" $ do
-        text "You can find more information in the paper by Peter Thiemann and Vasco T.Vasconcelos, available on "
+        text "You can find more information about LDST in the paper by Peter Thiemann and Vasco T.Vasconcelos, available on "
         elAttr "a" ("href" =: "https://arxiv.org/abs/1911.00705" <> "target" =: "_blank") $ text "arxiv"
+        text ".\n\nThis interpreter is also documented as an "
+        elAttr "a" ("href" =: "https://github.com/hagnernils/ldgv/blob/master/article.md" <> "target" =: "_blank") $ text "article"
         text ".\n"
 
 main = mainWidgetWithHead widgetHead $ divClass "wrapper" $ do
@@ -59,7 +61,7 @@ main = mainWidgetWithHead widgetHead $ divClass "wrapper" $ do
         doneEv <- performEvent ((\v -> liftIO $ do
                                                   let s = T.unpack v
                                                   -- clear the old output
-                                                  resetOutput
+                                                  setHtmlElement "tOutput" ""
                                                   -- interpret
                                                   res <- try $ typecheck s >> I.interpret s :: IO (Either SomeException Environment.Value)
                                                   -- print errors to the output if there are any
@@ -94,6 +96,3 @@ setHtmlElement ident s = do
 
 setSrc :: String -> JSM ()
 setSrc = setHtmlElement "tSrc"
-
-resetOutput :: JSM ()
-resetOutput = setHtmlElement "tOutput" ""
