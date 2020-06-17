@@ -16,7 +16,7 @@ interpret s = do
     let tokens = alexScanTokens s
     let parsed = G.parseCalc tokens
   
-    -- gather Type and Function definitions
+    -- gather function definitions
     let env = map makeEntry $ filter isInterestingDecl parsed where
         isInterestingDecl (DFun _ _ _ _) = True
         isInterestingDecl _ = False
@@ -44,7 +44,11 @@ interpret' e =
   (return (\val -> C.trace ("Leaving interpretation of " ++ show e ++ " with value " ++ show val) val)) $
   case C.trace ("Invoking interpretation on " ++ show e) e of
   Unit -> return VUnit
-  Var s -> envlookup s
+  Var s -> do
+          v <- envlookup s
+          case v of
+              VDecl d -> evalDFun d  -- resolve an identifier if it binds to a not yet interpreted value oder function
+              _ -> return v
   Lab s -> return $ VLabel s
   Int i -> return $ VInt i
   Nat i -> return $ VInt i
@@ -84,16 +88,10 @@ interpret' e =
       -- the innermost App is the function with its first argument (App "funcname" val)
       -- while outer Applications are of (App (VFun somefun) val)
       arg <- interpret' e2
-      v <- interpret' e1
-      -- check if the variable refers to a function label
+      v <- interpret' e1  -- interpret the inner function
       case v of
-          VDecl d -> do
-            res <- evalDFun d  -- if yes, resolve the function name and apply the function
-            case res of
-              (VFun f) -> do
-                f arg
-          VFun f -> do  -- if not, apply the function directly
-            f arg
+          VFun f -> do
+            f arg  -- return the function applied to the argument
           _ -> do
             fail $ "Trying to Apply " ++ show e2 ++ " to " ++ show e1
   Fork e -> do
