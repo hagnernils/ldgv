@@ -3,18 +3,20 @@
 The paper by [Peter Thiemann and Vasco T. Vasconcelos](#references) gives an excellent introduction to the LDST calculus.
 A good introductory explanation of Session Types is given in [2](#references).
 
-This post documents a backend of LDST, written in Haskell.
+This post documents a [backend](https://hagnernils.github.io/ldgv)of LDST, written in Haskell.
 
 ## Goals of this article
 This article provides documentation of the code (and ideas behind it) that makes up the backend of the
 interpreter. It does not concern itself with the frontend (type checker) code,
-which was provided by Peter Thiemann. Some parts of the code such as Declarations only for Typechecking, will be left out.
+which was provided by Peter Thiemann. Some parts of the code such as Declarations only used for Typechecking will be left out.
 
-There will be two main parts:
-The first one about Interpreter, the second one about creating a static site with our haskell executable.
+There are two main parts:
+One about how the interpreter is built with a monad transformer, the second about creating a static site with our Haskell executable.
 
+## Interpreters and monad transformers
 ## The Input : LDST
-The custom Parser built by the tokenizer [Alex](https://www.haskell.org/alex/) and parser generator [Happy](https://www.haskell.org/happy/) takes
+Before building an interpreter, we need to know what to interpret. The custom Parser built by the tokenizer
+[Alex](https://www.haskell.org/alex/) and parser generator [Happy](https://www.haskell.org/happy/) takes
 in a `String` of code and outputs LDST declarations (here simplified):
 
 ```haskell
@@ -81,35 +83,37 @@ and finally some recursion:
   deriving (Show,Eq)
 ```
 
-## Interpreters and monad transformers
-The interpreter has to represent the value of expressions it is working on.
+### Value representation of Expressions
+The interpreter has to represent the value of expressions it is working on. This is done by the following type:
 ```haskell
 data Value = VUnit
       | VLabel String  -- Labels
       | VInt Int  -- for simplicity, we use Int for Integers and natural numbers
       | VPair Value Value -- pair of values (or of ids that map to values)
-      | VFun (Value -> InterpretM) -- Function Type
-      | VChan (C.Chan Value) (C.Chan Value)
       | VDecl S.Decl -- when an identifier maps to another function we have not yet interpreted
+      | VChan (C.Chan Value) (C.Chan Value)
+      | VFun (Value -> InterpretM) -- Function Type
 ```
 This `Value` type is an algebraic datatype able to represent everything that occurs in our program.
 It would also be the place to add new types like Strings, Lists, Trees and others.
-a  function type `VFun`, We do not define functions in the form of `VFun Value -> Value`, but instead use `InterpretM`, a `Value` returned inside a monad.
-and our representation of Channels with haskells `Chan`nels out of [Control.Concurrent.Chan](https://hackage.haskell.org/package/base-4.14.0.0/docs/Control-Concurrent-Chan.html) (which themselves are wrappers around `MVars`).
-We use two channels, one for reading and one for writing to the other side, so we do not read our own written values. Instead reading gets blocked when reading in case the other side did not write anything.
-```haskell
-```
-Next to storing variable bindings, sending and receiving `Values` on channels is used to create the basic Session Type-ish functionality.
-Operations on `Chan`s like `Chan.newChan`, reading and writing are of type `IO (Chan a)`, `IO ()` or `IO a`, so we have to somehow run them in the `IO` monad.
+
+To represent Session Type Channel ends we use `Chan`nels out of the package [ Control.Concurrent.Chan](https://hackage.haskell.org/package/base-4.14.0.0/docs/Control-Concurrent-Chan.html),
+which themselves are wrappers around `MVars`.
+We use two channels to represent an endpoint, one for reading and one for writing to the other side, so we do not read our own written values.
+So instead of reading what was just written, a `readChan` on a Channel gets blocked in case the other side did not write anything.
+
+Functions are not defined in the form of `Value -> Value`, but instead use `Value -> InterpretM`, a `Value` returned inside a monad.
+That is useful because operations on `Chan`s like `Chan.newChan`, reading and writing are of type `IO (Chan a)`, `IO ()` or `IO a`, so we have to somehow run them in the `IO` monad.
 We can solve this by stacking `Reader` and `IO` in a so-called monad transformer.
 
 ### Monad transformers
 Monad transformers behave like stacks of monads where each monad layer provides its own functionality.
+To keep track of variable bindings we use [mtl](https://github.com/haskell/mtl)s Reader.
 Instead of using a `Reader r a` with environment `r` and return type `a`, we use the constructor `ReaderT r m a` together with `runReaderT :: ReaderT r m a -> r -> m a`, which 
 still allows for environment `r` and return value `a`, but this time inside a monad `m` of our choosing - here we use `IO`.
 
 We can access functionality of monads in lower layers by lifting functions into them: `ReaderT` implements `MonadIO m => liftIO :: IO a -> m a` to run a `IO a` as long as we fulfill a `MonadIO` typeclass constraint for our
-current monad. Luckily `ReaderT` and others in the `mtl` do this: if the wrapped Monad `m` is an instance of `MonadIO`, so is our combined `ReaderT r m a`.
+current monad. Luckily `ReaderT` and others in the `mtl` do this: if the wrapped monad `m` is an instance of `MonadIO`, so is our combined `ReaderT r m a`.
 <!--Later on we will replace the inner `IO` with JSaddles `JSM` (that also implements `MonadIO`).-->
 ```haskell
 -- | the interpretation monad
@@ -121,7 +125,7 @@ type EnvEntry = (String, Value)
 ```
 <!--A monad that implements the typeclass `MonadReader r m` with inner monad `m` and resource `r` allows us to `ask` for the current variable bindings and to modify them with `local`-->
 Now that we can represent the Values of Expressions and store them, we can move on to define basic interpretation.
-First, we want a function that maps Expressions to Values inside our transformer:
+First, we want interpretation to be a function that maps Expressions to Values inside our transformer:
 ```haskell
 -- | interpret a single Expression
 interpret' :: Exp ->  InterpretM
@@ -132,12 +136,16 @@ for basic Expressions the resulting Value is simple
   Lab s -> return $ VLabel s
   Int i -> return $ VInt i
   Nat i -> return $ VInt i
- ```
+```
 to look up variables we use a helper
 ```haskell
-  Var s -> envlookup s
+  Var s -> do
+          v <- envlookup s
+          case v of
+              VDecl d -> evalDFun d  -- resolve an identifier if it binds to a not yet interpreted value oder function
+              _ -> return v
 ```
-which gives us an error message if we try to use a variable which has no `Value` bound to it.
+which gives an error message if a variable is used which has no `Value` bound to it.
 ```haskell
 envlookup :: String -> InterpretM
 envlookup id = do
@@ -146,8 +154,7 @@ envlookup id = do
         Nothing -> fail ("No Value for identifier " ++ id ++ " in Environment")
         Just val -> return val
 ```
-
-To avoid repetition we use a helper for mathematical functions
+Back to the `interpret'`ation: To avoid repetition we use another helper function for mathematical functions
 ```haskell
   Plus e1 e2 -> mathHelper (+) e1 e2
   Minus e1 e2 ->  mathHelper (-) e1 e2
@@ -156,7 +163,7 @@ To avoid repetition we use a helper for mathematical functions
   Negate e1 ->  mathHelper (-) (Int 0) e1
   Succ e -> mathHelper (+) (Int 1) e
 ```
-
+that applies an operator to two interpreted expressions.
 ```haskell
 mathHelper op e1 e2 = do
     v1 <- interpret' e1
@@ -164,7 +171,7 @@ mathHelper op e1 e2 = do
     return $ case (v1, v2) of
       (VInt a, VInt b) -> VInt (op a b)
 ```
-To assign a value of expression `e1` to a variable `s` we simply prepend it using `local` to our Environment in the `interpret'`ation of the inner expression `e2`.
+To assign a value of expression `e1` to a variable `s` we simply prepend it using `local` to our environment in the `interpret'`ation of the inner expression `e2`.
 ```haskell
   Let s e1 e2 -> do
       v  <- interpret' e1
@@ -177,15 +184,14 @@ The same way a pair is unpacked, this time with two values added.
       case v of
         (VPair v1 v2) -> R.local (\env -> (s1, v1):(s2, v2):env) $ interpret' e2
 ```
-
-We can also have dependent pairs, where the result of e1 can be used in the interpretation of e2
+We can also have dependent pairs, where the result of e1 can be used in the interpretation of e2.
 ```haskell
   Pair mul s e1 e2 -> do
       v1 <- interpret' e1
       v2 <- R.local ((s, v1) :) $ interpret' e2
       return $ VPair v1 v2
 ```
-As convenience we can access the first and second value in a pair with `fst` and `snd`
+As convenience we can access the first and second value in a pair with `fst` and `snd`.
 ```haskell
   Fst e -> do
       v <- interpret' e
@@ -197,7 +203,7 @@ As convenience we can access the first and second value in a pair with `fst` and
           (VPair s1 s2) -> return s2
 ```
 ### Functions
-Finally, we have functions. They are represented by a type that holds a closure `f` which maps the identifier `i` to an
+Finally, we have the interpretation of functions. They are represented by a type that holds a closure `f` which maps the identifier `i` to an
 argument `arg` and then interprets the body `e` of the function.
 
 ```haskell
@@ -207,8 +213,8 @@ argument `arg` and then interprets the body `e` of the function.
                                  liftIO $ R.runReaderT (interpret' e) ((i, arg):env)
                  return $ VFun f
 ```
-Applying a function to a Value is now done one Argument at a time.
-Functions with multiple arguments get curried to intermediate `VFun`s themselves.
+Applying a function to a Value is now done one argument at a time.
+Functions with multiple arguments get curried to intermediate `VFun`s.
 ```haskell
   App e1 e2 -> do
       arg <- interpret' e2
@@ -226,9 +232,9 @@ Functions with multiple arguments get curried to intermediate `VFun`s themselves
             fail $ "Trying to Apply " ++ show e2 ++ " to " ++ show e1
 ```
 ### Session Type functionality
-The backend does not implement dynamic type checking for session type channel. <!--s, as done in the [simple-sessions](https://hackage.haskell.org/package/simple-sessions) package. -->
+The backend does not implement any consitency checking for the soundness of what is send on the session type channels. <!--s, as done in the [simple-sessions](https://hackage.haskell.org/package/simple-sessions) package. -->
 Instead it relies on the type checker statically checking all code for violations.
-The main functionality is given by an access point, a pair of dual Channels. When writing to (reading from) one side it is expected that the dual part in program reads (wrote to) it and vice versa.
+The main functionality is given by an access point, a pair of dual endpoints. When writing to (reading from) one side it is expected that the dual part in the code reads (wrote to) it and vice versa.
 To create a new access point, we use the `new` keyword, construct a channel for each direction and simply pack it into a pair.
 ```haskell
   New t -> do
@@ -237,7 +243,7 @@ To create a new access point, we use the `new` keyword, construct a channel for 
     return $ VPair (VChan r w) (VChan w r)
 ```
 A `send` on a channel in LDST is a partially applied function, that later gets applied to the argument that is sent.
-So for `(send channelname)` we return a closure that writes its argument to and then returns the channel.
+So for `(send channelname) 42` we return a closure that writes its argument `VInt 42` to and then returns the channel.
 ```haskell
   Send e -> do
       v <- interpret' e
@@ -246,7 +252,7 @@ So for `(send channelname)` we return a closure that writes its argument to and 
                                         liftIO (Chan.writeChan c arg)
                                         return v
 ```
-Receiving is simply reading from a channel
+Receiving is simply reading from a channel with `readChan`.
 ```haskell
   Recv e -> do
       v <- interpret' e
@@ -254,14 +260,18 @@ Receiving is simply reading from a channel
         (VChan c _) -> do
           val <- liftIO $ Chan.readChan c
           return $ VPair val v
+```
+To enable parallelism, we can fork off an expression (but not collect it's result).
+```haskell
   Fork e -> do
       penv <- ask
       liftIO $ forkIO (do
                       res <- runReaderT (interpret' e) penv
-                      C.traceIO "Ran a forked operation")
+                      C.traceIO $ "Ran a forked operation with result " ++ show res)
       return VUnit
 ```
-One special feature of LDST is a type-level recursor: it allows for implementing G
+One special feature of LDST is a type-level recursor: it allows for implementing number-indexed protocols.
+The Declaration consists of a TODO
 ```haskell
   exp@(NatRec e1 e2 i1 t1 i2 t2 e3) -> do
   -- returns a function indexed over e1 (should be a variable pointing to a Nat)
@@ -281,15 +291,14 @@ One special feature of LDST is a type-level recursor: it allows for implementing
                         let newexp = NatRec (Var i1) e2 i1 t1 i2 t2 e3
                         lower <- local ((i1, VInt (n-1)):) $ interpret' newexp
                         local (\env -> (i1, VInt n):(i2, lower):env) $ interpret' e3
- 
 ```
-The function to evaluate references to other Declarations `VDecl d` can simply interpret when we have no free variables:
-
+The function to evaluate references to other Declarations VDecl d can simply interpret when we have no free variables:
 ```haskell
 -- | interpret a DFun (Function declaration)
 evalDFun :: Decl -> InterpretM
 evalDFun decl@(DFun name [] expression) = interpret' expression
 ```
+
 but for functions with free variables, we construct a `VFun` for each parameter `id` in the parameter list `binds`, like
 we did for Lambda binding
 ```haskell
@@ -301,7 +310,7 @@ evalDFun decl@(DFun name ((_, id, _):binds) e mty) = do
                           return $ VFun f
 ```
 ## Moving to the web - compiling Haskell to Javascript
-To compile the haskell application to client-side Javascript we use reflex and
+To compile the Haskell application to client-side Javascript we use reflex and
 reflex-dom, which use the ghcjs compiler together with the nix paket manager.
 The resulting static site can then be easily hosted by GitHub-Pages.
 
@@ -401,7 +410,7 @@ Proposed in the paper:
 - coinductive subtyping for the recursor S.18 Gay and Hole
 
 ## Personal Notes
-This project exposed me to a lot of haskell concepts, which was quite new for me.
+This project exposed me to a lot of Haskell concepts, which was quite new for me.
 Especially working with and debugging the monad transformer took me a long time.
 Nix and reflex were also 
 
