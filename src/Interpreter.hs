@@ -98,7 +98,7 @@ interpret' e =
       env <- ask
       liftIO $ forkIO (do
                       res <- runReaderT (interpret' e) env
-                      C.traceIO "Ran a forked operation")
+                      C.traceIO $ "Ran a forked operation with result " ++ show res)
       return VUnit
   New t -> do
     r <- liftIO Chan.newChan
