@@ -15,7 +15,7 @@ The first one about Interpreter, the second one about creating a static site wit
 
 ## The Input : LDST
 The custom Parser built by the tokenizer [Alex](https://www.haskell.org/alex/) and parser generator [Happy](https://www.haskell.org/happy/) takes
-in a `.ldgv` file and outputs LDST declarations (here simplified):
+in a `String` of code and outputs LDST declarations (here simplified):
 
 ```haskell
 data Decl = DType TIdent Type  -- define a type with name
@@ -83,51 +83,50 @@ and finally some recursion:
 
 ## Interpreters and monad transformers
 The interpreter has to represent the value of expressions it is working on.
-This `Value` type is an algebraic datatype of everything that ocurs in our programs, such as basic Types
 ```haskell
 data Value = VUnit
       | VLabel String  -- Labels
       | VInt Int  -- for simplicity, we use Int for Integers and natural numbers
       | VPair Value Value -- pair of values (or of ids that map to values)
-```
-functions
-```haskell
-      | VFun (Value -> InterpretM) -- Function Type TODO move to later part when monad is defined
-```
-and our representation of Channels with haskells `Chan`nels out of [Control.Concurrent.Chan](https://hackage.haskell.org/package/base-4.14.0.0/docs/Control-Concurrent-Chan.html) (which themselves are wrappers around `MVars`).
-We use two channels, one for reading and one for writing to the other, so we do not read our own written values. Instead reading gets blocked when reading in case the other side did not write anything.
-```haskell
+      | VFun (Value -> InterpretM) -- Function Type
       | VChan (C.Chan Value) (C.Chan Value)
       | VDecl S.Decl -- when an identifier maps to another function we have not yet interpreted
 ```
-Next to storing variable bindings we want to send and receive `Values` to create the basic Session Type functionality.
-So we have to allow for operations on `Chan`s to occur in the `IO` monad.
-We can solve this by stacking a `ReaderT` and `IO` in a monad transformer.
+This `Value` type is an algebraic datatype able to represent everything that occurs in our program.
+It would also be the place to add new types like Strings, Lists, Trees and others.
+a  function type `VFun`, We do not define functions in the form of `VFun Value -> Value`, but instead use `InterpretM`, a `Value` returned inside a monad.
+and our representation of Channels with haskells `Chan`nels out of [Control.Concurrent.Chan](https://hackage.haskell.org/package/base-4.14.0.0/docs/Control-Concurrent-Chan.html) (which themselves are wrappers around `MVars`).
+We use two channels, one for reading and one for writing to the other side, so we do not read our own written values. Instead reading gets blocked when reading in case the other side did not write anything.
+```haskell
+```
+Next to storing variable bindings, sending and receiving `Values` on channels is used to create the basic Session Type-ish functionality.
+Operations on `Chan`s like `Chan.newChan`, reading and writing are of type `IO (Chan a)`, `IO ()` or `IO a`, so we have to somehow run them in the `IO` monad.
+We can solve this by stacking `Reader` and `IO` in a so-called monad transformer.
 
-### Enter monad transformers
+### Monad transformers
 Monad transformers behave like stacks of monads where each monad layer provides its own functionality.
 Instead of using a `Reader r a` with environment `r` and return type `a`, we use the constructor `ReaderT r m a` together with `runReaderT :: ReaderT r m a -> r -> m a`, which 
-still allows for environment `r` and return value `a`, but this time inside a monad of our choosing - here we use `IO`.
+still allows for environment `r` and return value `a`, but this time inside a monad `m` of our choosing - here we use `IO`.
 
-<!--Later on we will replace `IO` with JSaddles `JSM` (that implements `MonadIO` and thus provides `liftIO`) to run a
-We use the `mtl` to wrap a `ReaderT` around the IO monad, used to keep track of current variable bindings-->
+We can access functionality of monads in lower layers by lifting functions into them: `ReaderT` implements `MonadIO m => liftIO :: IO a -> m a` to run a `IO a` as long as we fulfill a `MonadIO` typeclass constraint for our
+current monad. Luckily `ReaderT` and others in the `mtl` do this: if the wrapped Monad `m` is an instance of `MonadIO`, so is our combined `ReaderT r m a`.
+<!--Later on we will replace the inner `IO` with JSaddles `JSM` (that also implements `MonadIO`).-->
 ```haskell
 -- | the interpretation monad
-type InterpretM = R.ReaderT Env IO Value  -- TODO replace with JSM
+type InterpretM = R.ReaderT Env IO Value
 
 -- | maps identifiers to Values of expressions and stores
 type Env = [EnvEntry]
 type EnvEntry = (String, Value)
 ```
-
-Now that we can represent the Values of Expressions, we can move on to define basic interpretation.
-First, we want a function that maps Expressions to Values inside out transformer:
+<!--A monad that implements the typeclass `MonadReader r m` with inner monad `m` and resource `r` allows us to `ask` for the current variable bindings and to modify them with `local`-->
+Now that we can represent the Values of Expressions and store them, we can move on to define basic interpretation.
+First, we want a function that maps Expressions to Values inside our transformer:
 ```haskell
 -- | interpret a single Expression
 interpret' :: Exp ->  InterpretM
 ```
 for basic Expressions the resulting Value is simple
-
 ```haskell
   Unit -> return VUnit
   Lab s -> return $ VLabel s
@@ -165,16 +164,15 @@ mathHelper op e1 e2 = do
     return $ case (v1, v2) of
       (VInt a, VInt b) -> VInt (op a b)
 ```
-To assign a value of expression `e1` to a variable `s` we simply prepend it to our Environment in the `interpret'`ation of the inner expression `e2`
+To assign a value of expression `e1` to a variable `s` we simply prepend it using `local` to our Environment in the `interpret'`ation of the inner expression `e2`.
 ```haskell
   Let s e1 e2 -> do
       v  <- interpret' e1
       R.local ((s, v):) $ interpret' e2
 ```
-The same way a pair is unpacked, this time with two values added to our `env`
+The same way a pair is unpacked, this time with two values added.
 ```haskell
   LetPair s1 s2 e1 e2 -> do
-      -- simple pair unpacking
       v <- interpret' e1
       case v of
         (VPair v1 v2) -> R.local (\env -> (s1, v1):(s2, v2):env) $ interpret' e2
@@ -199,10 +197,9 @@ As convenience we can access the first and second value in a pair with `fst` and
           (VPair s1 s2) -> return s2
 ```
 ### Functions
-Finally, we have some functions. They are represented by a Type that holds a Closure `f` which maps the identifier `i` to an
-argument `arg` and then interprets the body of the function `e`.
+Finally, we have functions. They are represented by a type that holds a closure `f` which maps the identifier `i` to an
+argument `arg` and then interprets the body `e` of the function.
 
-TODO if binding of env like this makes sense, or should be resolved at invocation time
 ```haskell
   Lam m i t e -> do
                  env <- ask 
@@ -239,8 +236,8 @@ To create a new access point, we use the `new` keyword, construct a channel for 
     w <- liftIO Chan.newChan
     return $ VPair (VChan r w) (VChan w r)
 ```
-Because the expression for `send` does not give us the argument, we return a closure that writes to and then returns the channel.
-The expression `(send channelname)` is then used as a function TODO
+A `send` on a channel in LDST is a partially applied function, that later gets applied to the argument that is sent.
+So for `(send channelname)` we return a closure that writes its argument to and then returns the channel.
 ```haskell
   Send e -> do
       v <- interpret' e
@@ -249,7 +246,7 @@ The expression `(send channelname)` is then used as a function TODO
                                         liftIO (Chan.writeChan c arg)
                                         return v
 ```
-Receiving is simply reading fr
+Receiving is simply reading from a channel
 ```haskell
   Recv e -> do
       v <- interpret' e
@@ -291,7 +288,7 @@ The function to evaluate references to other Declarations `VDecl d` can simply i
 ```haskell
 -- | interpret a DFun (Function declaration)
 evalDFun :: Decl -> InterpretM
-evalDFun decl@(DFun name [] expression _) = interpret' expression
+evalDFun decl@(DFun name [] expression) = interpret' expression
 ```
 but for functions with free variables, we construct a `VFun` for each parameter `id` in the parameter list `binds`, like
 we did for Lambda binding
@@ -336,7 +333,7 @@ printLn s = do
     ...
 ```
 Upon a `_dropdown_change` of the example-dropdown `d`, we set the source text with a simple JSaddle 
-javascript evaluation
+javascript evaluation to the content of the current example file.
 
 ```haskell
 setSrc :: String -> JSM ()
@@ -376,7 +373,7 @@ elAttr "p" ("id" =: "tResult") $ dynText output
 ```
 
 # Testing
-Testing the parser is done using [hspec]() with automatic discovery as described in here.
+Testing the parser is done using [Hspec](https://hspec.github.io/) with automatic discovery as described in here.
 To build the tests, we can use ghc inside a nix shell
 
 ```bash
@@ -390,6 +387,8 @@ cabal test  # build and run the tests
 - ~~Use bazel to build iteratively, not on package-level~~ we can build iteratively in the nix shell using cabal instead of building the whole nix package
 - remove unnescessary javascipt, for example with the google closure compiler
 - use CI to deploy to gh-pages and run tests
+### Typechecker
+- the `snd` value of a dependent pair does not typecheck -> see [depsum.ldst](depsum.ldst)
 ### Interpreter
 - Catch a division by 0
 - Print out nicer error messages with line numbers
