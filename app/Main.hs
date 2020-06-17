@@ -41,7 +41,7 @@ main = mainWidgetWithHead widgetHead $ divClass "wrapper" $ do
         (b, _) <- elAttr' "button" ("id" =: "bInterpret") $ text "Interpret" 
         -- Interpret button click event
         let e = domEvent Click b
-        -- Dynamic Text looked up in example ldgv files on dropdown change
+        -- Dynamic Text looked up in example ldst files on dropdown change
         let dVal = _dropdown_value d
         let lookupExample = (\v -> maybe ("Did not find example file") id (Map.lookup v examplesTextMap))
 

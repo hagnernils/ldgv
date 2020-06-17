@@ -12,8 +12,14 @@ val f1bz (z : {'a, 'b}) =
 val f1b (z : {'a, 'b}) =
     < x = z, case x of {'a : 42, 'b : 'True} >
 
+val f1c =
+    case x of {'a : 42, 'b : 'True}
+
 val f2
     (g : (x : {'a, 'b}) -> case x of {'a : Int, 'b : Bool})
     (y : {'a, 'b})
     =
     < z = case y of {'a : 'b, 'b : 'a}, g z >
+
+val arg = 'a
+val main = (f2 f1c) arg
