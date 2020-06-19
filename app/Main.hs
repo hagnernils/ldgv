@@ -48,10 +48,10 @@ main = mainWidgetWithHead widgetHead $ divClass "wrapper" $ do
         let lookupExample = (\v -> maybe ("Did not find example file") id (Map.lookup v examplesTextMap))
 
         -- Textarea for source
-        elAttr "textarea" ("id" =: "tSrc" <> "class" =: "source_textarea" <>"spellcheck" =: "false") $ dynText $ fmap (T.pack.lookupExample) dVal
+        elAttr "textarea" ("id" =: "tSrc" <> "class" =: "source_textarea" <>"spellcheck" =: "false") $ dynText $ (T.pack.lookupExample) <$> dVal
 
         -- set the new text in the textarea on dropdown selection
-        performEvent_ $ ffor (fmap lookupExample $ _dropdown_change d) (\s -> liftJSM $ setSrc s)
+        performEvent_ $ (\s -> liftJSM $ setSrc s) <$> (lookupExample <$> _dropdown_change d) 
         -- get the text inside the area on button click
         srcText <- performEvent $ ffor e $ (const $ liftJSM $ textareaget)
    
@@ -69,7 +69,7 @@ main = mainWidgetWithHead widgetHead $ divClass "wrapper" $ do
                                 ) <$> srcText)
 
         -- Dynamic Text and Textarea for output
-        output <- holdDyn "" $ fmap T.pack doneEv
+        output <- holdDyn "" $ T.pack <$> doneEv
         elAttr "p" ("id" =: "tResult") $ dynText output
 
         -- describe our syntax
