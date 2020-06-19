@@ -271,20 +271,20 @@ To enable parallelism, we can fork off an expression (but not collect it's resul
       return VUnit
 ```
 One special feature of LDST is a type-level recursor: it allows for implementing number-indexed protocols.
-The Declaration consists of a TODO
+The Declaration consists of a number `e1` as well as a zero and a nonzero case that get evaluated when `e1` is 0 or > 0.
+The identifier `i1` binds the current value of `e1`, `i2` the result of the recursive interpretation.
 ```haskell
-  exp@(NatRec e1 e2 i1 t1 i2 t2 e3) -> do
+  exp@(NatRec e1 e2 i1 i2 e3) -> do
   -- returns a function indexed over e1 (should be a variable pointing to a Nat)
   -- e1 should evaluate to the recursive variable which gets decreased each time the
   -- non-zero case is evaluated
   -- e2 is the zero case
+  -- i1 is the current value of e1
+  -- i2 is the identifier of the predecessor
   -- e3 is the nonzero case
          i <- interpret' e1
          case i of
                  VInt 0 -> interpret' e2
-                 VInt 1 -> do
-                             zero <- interpret' e2
-                             local (\env -> (i1, VInt 1):(i2, zero):env) $ interpret' e3
                  VInt n -> do
                         -- interpret the n-1 case i2 and add it to the env
                         -- together with n before interpreting the body e3
@@ -292,15 +292,14 @@ The Declaration consists of a TODO
                         lower <- local ((i1, VInt (n-1)):) $ interpret' newexp
                         local (\env -> (i1, VInt n):(i2, lower):env) $ interpret' e3
 ```
-The function to evaluate references to other Declarations VDecl d can simply interpret when we have no free variables:
+The function to evaluate references to other declarations can simply interpret when we have no free variables:
 ```haskell
 -- | interpret a DFun (Function declaration)
 evalDFun :: Decl -> InterpretM
 evalDFun decl@(DFun name [] expression) = interpret' expression
 ```
-
-but for functions with free variables, we construct a `VFun` for each parameter `id` in the parameter list `binds`, like
-we did for Lambda binding
+but for functions with free variables we use the value constructor `VFun` to construct a closure for each parameter `id` in the parameter list `binds`
+(the same as for lambda binding).
 ```haskell
 evalDFun decl@(DFun name ((_, id, _):binds) e mty) = do
                           env <- ask
@@ -314,9 +313,9 @@ To compile the Haskell application to client-side Javascript we use reflex and
 reflex-dom, which use the ghcjs compiler together with the nix paket manager.
 The resulting static site can then be easily hosted by GitHub-Pages.
 
-Reflex follows a programming pattern called [Functional Reactive Programming](TODO), which is best explained by the [Queensland Functional Programming Lab](https://qfpl.io/projects/reflex)
+Reflex follows a programming pattern called [Functional Reactive Programming](TODO), which the [Queensland Functional Programming Lab](https://qfpl.io/projects/reflex) better explains than I could.
 
-The Environment this runs in is the `JSM`, which luckily is an instance of `MonadIO` and thus provides `lifIO` which we can use to run the main `interpret`ation of source code. 
+The backend for  this runs in is the `JSM`, which luckily is an instance of `MonadIO` and thus provides `lifIO` which we can use to run the main `interpret`ation of source code. 
 
 We then build a very basic page with two main text fields, one with the HTML id `tSrc` for the input
 
@@ -401,18 +400,20 @@ cabal test  # build and run the tests
 ### Interpreter
 - Catch a division by 0
 - Print out nicer error messages with line numbers
-- Implement the Access Points and Channels over sockets etc to support
+- Implement the Access Points and Channels over sockets etc to show real-world practicality
   using the interpreter over multiple machines
-- Allow for sending of channels (TODO look in LDST)
+- Allow for sending of channels <!--(TODO look in LDST)-->
 - Implement basic Datatypes such as Strings, Vectors of Types etc
 Proposed in the paper:
 - recursion and recursive datatypes through recursive types
-- coinductive subtyping for the recursor S.18 Gay and Hole
+- coinductive subtyping for the recursor <!--S.18 Gay and Hole-->
 
 ## Personal Notes
 This project exposed me to a lot of Haskell concepts, which was quite new for me.
 Especially working with and debugging the monad transformer took me a long time.
 Nix and reflex were also 
+
+Going over the project to write this made me remove and simplify a lot of code, 
 
 ## References
 (1) Peter Thiemann and Vasco T. Vasconcelos. 2019. Label-dependent session types. Proc. ACM Program. Lang. 4, POPL, Article 67 (January 2020), 29 pages. DOI:https://doi.org/10.1145/3371135
