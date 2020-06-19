@@ -135,9 +135,6 @@ interpret' e =
          i <- interpret' e1
          case i of
                  VInt 0 -> interpret' e2
-                 VInt 1 -> do
-                             zero <- interpret' e2
-                             local (\env -> (i1, VInt 1):(i2, zero):env) $ interpret' e3
                  VInt n -> do
                         -- interpret the n-1 case i2 and add it to the env
                         -- together with n before interpreting the body e3
