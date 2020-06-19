@@ -1,20 +1,21 @@
-# LDST
+# A backend for Label-Dependent Session Types LDST
 
 The paper by [Peter Thiemann and Vasco T. Vasconcelos](#references) gives an excellent introduction to the LDST calculus.
-A good introductory explanation of Session Types is given in [2](#references).
+A good introductory explanation of Session Types is given in [Igarashi, Thiemann, Vasconcelos and Wadler](#references).
 
-This post documents a [backend](https://hagnernils.github.io/ldgv)of LDST, written in Haskell.
+This post documents a backend of LDST, written in Haskell and available at
+[https://hagnernils.github.io/ldgv](https://hagnernils.github.io/ldgv).
 
 ## Goals of this article
 This article provides documentation of the code (and ideas behind it) that makes up the backend of the
 interpreter. It does not concern itself with the frontend (type checker) code,
-which was provided by Peter Thiemann. Some parts of the code such as Declarations only used for Typechecking will be left out.
+which was provided by Peter Thiemann. Some parts of the code such as declarations only used for typechecking will be left out.
 
 There are two main parts:
 One about how the interpreter is built with a monad transformer, the second about creating a static site with our Haskell executable.
 
 ## Interpreters and monad transformers
-## The Input : LDST
+### The Input : LDST
 Before building an interpreter, we need to know what to interpret. The custom Parser built by the tokenizer
 [Alex](https://www.haskell.org/alex/) and parser generator [Happy](https://www.haskell.org/happy/) takes
 in a `String` of code and outputs LDST declarations (here simplified):
@@ -26,10 +27,10 @@ data Decl = DType TIdent Type  -- define a type with name
 ```
 where `TIdent` and `Ident` are alias types for `String`.
 
-There are also Declarations only for Typechecking, like Type equivalency checking. They get typechecked but not
+There are also declarations only for typechecking, like type equivalency checking. They get typechecked but not
 interpreted by the backend.
 
-The parsing of text into these Declarations is later [tested](#testing).
+The parsing of text into these declarations is also [tested](readme.md/#testing).
 
 Let's take a look at available Expressions. First, we have basic types:
 ```haskell
@@ -97,13 +98,16 @@ data Value = VUnit
 This `Value` type is an algebraic datatype able to represent everything that occurs in our program.
 It would also be the place to add new types like Strings, Lists, Trees and others.
 
-To represent Session Type Channel ends we use `Chan`nels out of the package [ Control.Concurrent.Chan](https://hackage.haskell.org/package/base-4.14.0.0/docs/Control-Concurrent-Chan.html),
+To represent Session Type Channel ends we use `Chan`nels out of the package
+ [ Control.Concurrent.Chan](https://hackage.haskell.org/package/base-4.14.0.0/docs/Control-Concurrent-Chan.html),
 which themselves are wrappers around `MVars`.
-We use two channels to represent an endpoint, one for reading and one for writing to the other side, so we do not read our own written values.
+We use two channels to represent an endpoint, one for reading and one for writing to the other side,
+ so we do not read our own written values.
 So instead of reading what was just written, a `readChan` on a Channel gets blocked in case the other side did not write anything.
 
 Functions are not defined in the form of `Value -> Value`, but instead use `Value -> InterpretM`, a `Value` returned inside a monad.
-That is useful because operations on `Chan`s like `Chan.newChan`, reading and writing are of type `IO (Chan a)`, `IO ()` or `IO a`, so we have to somehow run them in the `IO` monad.
+That is useful because operations on `Chan`s like `Chan.newChan`, reading and writing are of type `IO (Chan a)`, `IO ()` or `IO a`,
+ so we have to somehow run them in the `IO` monad.
 We can solve this by stacking `Reader` and `IO` in a so-called monad transformer.
 
 ### Monad transformers
@@ -112,7 +116,8 @@ To keep track of variable bindings we use [mtl](https://github.com/haskell/mtl)s
 Instead of using a `Reader r a` with environment `r` and return type `a`, we use the constructor `ReaderT r m a` together with `runReaderT :: ReaderT r m a -> r -> m a`, which 
 still allows for environment `r` and return value `a`, but this time inside a monad `m` of our choosing - here we use `IO`.
 
-We can access functionality of monads in lower layers by lifting functions into them: `ReaderT` implements `MonadIO m => liftIO :: IO a -> m a` to run a `IO a` as long as we fulfill a `MonadIO` typeclass constraint for our
+We can access functionality of monads in lower layers by lifting functions into them:
+`ReaderT` implements `MonadIO m => liftIO :: IO a -> m a` to run a `IO a` as long as we fulfill a `MonadIO` typeclass constraint for our
 current monad. Luckily `ReaderT` and others in the `mtl` do this: if the wrapped monad `m` is an instance of `MonadIO`, so is our combined `ReaderT r m a`.
 <!--Later on we will replace the inner `IO` with JSaddles `JSM` (that also implements `MonadIO`).-->
 ```haskell
@@ -171,7 +176,8 @@ mathHelper op e1 e2 = do
     return $ case (v1, v2) of
       (VInt a, VInt b) -> VInt (op a b)
 ```
-To assign a value of expression `e1` to a variable `s` we simply prepend it using `local` to our environment in the `interpret'`ation of the inner expression `e2`.
+To assign a value of expression `e1` to a variable `s` we simply prepend it using `local`
+to our environment in the `interpret'`ation of the inner expression `e2`.
 ```haskell
   Let s e1 e2 -> do
       v  <- interpret' e1
@@ -313,26 +319,24 @@ To compile the Haskell application to client-side Javascript we use reflex and
 reflex-dom, which use the ghcjs compiler together with the nix paket manager.
 The resulting static site can then be easily hosted by GitHub-Pages.
 
-Reflex follows a programming pattern called [Functional Reactive Programming](TODO), which the [Queensland Functional Programming Lab](https://qfpl.io/projects/reflex) better explains than I could.
+Reflex follows a programming pattern called [Functional Reactive Programming](https://stackoverflow.com/a/1030631/13598798), which the [Queensland Functional Programming Lab](https://qfpl.io/posts/reflex/basics/introduction) better explains than I could.
 
-The backend for  this runs in is the `JSM`, which luckily is an instance of `MonadIO` and thus provides `lifIO` which we can use to run the main `interpret`ation of source code. 
+The backend for `reflex-dom` is the `JSM` provided by [JSaddle](https://github.com/ghcjs/jsaddle), which luckily is an instance of `MonadIO` and thus provides `liftIO` which we can use to run the main `interpret`ation of ldst source code. 
 
-We then build a very basic page with two main text fields, one with the HTML id `tSrc` for the input
+We build a [basic page](https://hagnernils.github.io/ldgv) with two main text fields, one with the HTML id `tSrc` for the input
 
 ```haskell
 elAttr "textarea" ("id" =: "tSrc" <> "class" =: "source_textarea" <>"spellcheck" =: "false") $ dynText $ fmap (T.pack.lookupExample) dVal
 ```
-which uses a `dynText` as inner content, which is built by looking up the example file described by the dropdown.
-For output the same method is used, but it is set readonly. 
+that uses a `dynText` as inner content, which is built by looking up the example file described by the dropdown.
+For the second one (the output) the same method is used, but with the readonly attribute.
 
 ```haskell
 elAttr "textarea" ("id" =: "tOutput" <> "class" =: "output_textarea" <> "readonly" =: "readonly" <> "spellcheck" =: "false") blank
 ```
-We can then redirect output which used to go to stdout to our textbox
-
-There is most likely another way by using a `WriterT` around the `ReaderT` to store output, but appending text makes it more interactive
-(and easier to understand, coming from a non-functional programming background).
-
+Output by the typechecking and interpretation which used to go to stdout can then be redirected to our textbox.
+This is done by replacing `putStrLn :: String -> IO ()` with our own `String -> JSM ()` version which
+escapes newlines and quotes and uses the JSM to append text to the `value` of the `tOutput` textbox.
 ```haskell
 printLn :: String -> JSM ()
 printLn s = do
@@ -340,26 +344,31 @@ printLn s = do
     val <- eval $ T.concat ["document.getElementById('tOutput').value += '", t, "\\n'"]
     ...
 ```
-Upon a `_dropdown_change` of the example-dropdown `d`, we set the source text with a simple JSaddle 
+There is most likely another (better) way by using a `WriterT` around the `ReaderT` to store output, but appending text makes it more interactive for the user
+(and easier to understand, coming from a non-functional programming background).
+
+Upon a change of the dropdown index `_dropdown_change` of the dropdown for example files `d`, we set the source text with a simple JSaddle 
 javascript evaluation to the content of the current example file.
+Here, the applicative `<$>` functions the same as `fmap`ping the first argument over the second.
 
 ```haskell
-setSrc :: String -> JSM ()
-setSrc = setHtmlElement "tSrc"
-
-setHtmlElement :: String -> String -> JSM ()
-setHtmlElement ident s = do
-    _ <- eval (T.pack $ "document.getElementById('" ++ ident ++ "').value = " ++ (show s))
-    pure ()
+        performEvent_ $ (\s -> liftJSM $ setSrc s) <$> (fmap lookupExample $ _dropdown_change d) 
 ```
-
-TODO: explain event and src text
-Wen our interpretation button ` ` is pressed, we run our `Interpreter`
-
+When our interpretation button is pressed, we create an event `srcText` that contains the source text
+(again fetching it from the textbox through a javascript evaluation).
 ```haskell
--- get the text inside the area on button click
-srcText <- performEvent $ ffor e $ (const $ liftJSM $ textareaget)
+        -- interpretation button
+        (b, _) <- elAttr' "button" ("id" =: "bInterpret") $ text "Interpret" 
 
+        -- interpret button click event
+        let e = domEvent Click b
+
+        -- get the text inside the area on button click
+        srcText <- performEvent $ ffor e $ (const $ liftJSM $ textareaget)
+```
+This event is then `fmap`ped over to give the source code as input to the interpretation.
+After interpretation it contains an output of type `Event String`which is `either` the result or an error mesage.
+```haskell
 doneEv <- performEvent ((\v -> liftIO $ do
                                                   let s = T.unpack v
                                                   -- clear the old output
@@ -371,50 +380,36 @@ doneEv <- performEvent ((\v -> liftIO $ do
                                 ) <$> srcText)
 
 ```
-the output of type `Event String` is then used to update a `Dynamic Text` and displayed.
-```haskell
-holdDyn :: a -> Event a -> m (Dynamic a)
-```
+To display the result, a placeholder is created with `holdDyn :: a -> Event a -> m (Dynamic a)`.
+The interpretation result in `doneEv` is then used to update the `Dynamic Text`.
 ```haskell
 output <- holdDyn "" $ fmap T.pack doneEv
 elAttr "p" ("id" =: "tResult") $ dynText output
 ```
 
-# Testing
-Testing the parser is done using [Hspec](https://hspec.github.io/) with automatic discovery as described in here.
-To build the tests, we can use ghc inside a nix shell
-
-```bash
-nix-shell -A shells.ghc  # use the nix shell for our dependencies
-cabal configure --ghc  # make sure we use ghc as compiler, not ghcjs
-cabal test  # build and run the tests
-```
-
 ## Future improvements
-### process
+### Process
 - ~~Use bazel to build iteratively, not on package-level~~ we can build iteratively in the nix shell using cabal instead of building the whole nix package
 - remove unnescessary javascipt, for example with the google closure compiler
-- use CI to deploy to gh-pages and run tests
-### Typechecker
-- the `snd` value of a dependent pair does not typecheck -> see [depsum.ldst](depsum.ldst)
+- use (Travis) CI to run tests and CD to deploy to gh-pages
 ### Interpreter
+- Write tests for the interpreter or give it a denoational semantics (would probably be a lot of work)
 - Catch a division by 0
 - Print out nicer error messages with line numbers
 - Implement the Access Points and Channels over sockets etc to show real-world practicality
   using the interpreter over multiple machines
 - Allow for sending of channels <!--(TODO look in LDST)-->
 - Implement basic Datatypes such as Strings, Vectors of Types etc
-Proposed in the paper:
+As proposed in the paper:
 - recursion and recursive datatypes through recursive types
 - coinductive subtyping for the recursor <!--S.18 Gay and Hole-->
 
 ## Personal Notes
-This project exposed me to a lot of Haskell concepts, which was quite new for me.
-Especially working with and debugging the monad transformer took me a long time.
-Nix and reflex were also 
-
-Going over the project to write this made me remove and simplify a lot of code, 
+This project exposed me to a lot of Haskell and Functional (Reactive) Programming concepts, which was quite new for me,
+especially working with and debugging the monad transformer took me a long time.
+Nix and reflex were also daunting at first, but going over the project to write this made me remove and simplify a lot of code and lead to a much better understanding.
+The design of the interpreter and the frontend page can definitely be improved.
 
 ## References
-(1) Peter Thiemann and Vasco T. Vasconcelos. 2019. Label-dependent session types. Proc. ACM Program. Lang. 4, POPL, Article 67 (January 2020), 29 pages. DOI:https://doi.org/10.1145/3371135
-(2) Atsushi Igarashi, Peter Thiemann, Vasco T. Vasconcelos, and Philip Wadler. 2017. Gradual session types. Proc. ACM Program. Lang. 1, ICFP, Article 38 (September 2017), 28 pages. DOI:https://doi.org/10.1145/3110282
+- (1) Peter Thiemann and Vasco T. Vasconcelos. 2019. Label-dependent session types. Proc. ACM Program. Lang. 4, POPL, Article 67 (January 2020), 29 pages. DOI:https://doi.org/10.1145/3371135
+- (2) Atsushi Igarashi, Peter Thiemann, Vasco T. Vasconcelos, and Philip Wadler. 2017. Gradual session types. Proc. ACM Program. Lang. 1, ICFP, Article 38 (September 2017), 28 pages. DOI:https://doi.org/10.1145/3110282
