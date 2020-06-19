@@ -7,7 +7,7 @@ import Language.Javascript.JSaddle (JSM)
 -- | the interpretation monad
 type InterpretM = ReaderT Env JSM Value
 
--- | maps identifiers to Values of expressions and stores
+-- | maps identifiers to Values of expressions
 type Env = [EnvEntry]
 type EnvEntry = (String, Value)
 
