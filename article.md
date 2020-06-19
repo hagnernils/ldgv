@@ -363,8 +363,9 @@ Here, the applicative `<$>` functions the same as `fmap`ping the first argument 
 ```haskell
         performEvent_ $ (\s -> liftJSM $ setSrc s) <$> (fmap lookupExample $ _dropdown_change d) 
 ```
-When our interpretation button is pressed, we create an event `srcText` that contains the source text
-(again fetching it from the textbox through a javascript evaluation).
+When the interpretation button is pressed, we create an event `e`.
+A constant function fetches the source text from the textbox through a javascript evaluation and maps over `e`,
+so `srcText :: Event Text` contains the text inside the source textarea upon button click.
 ```haskell
         -- interpretation button
         (b, _) <- elAttr' "button" ("id" =: "bInterpret") $ text "Interpret" 
@@ -373,7 +374,7 @@ When our interpretation button is pressed, we create an event `srcText` that con
         let e = domEvent Click b
 
         -- get the text inside the area on button click
-        srcText <- performEvent $ ffor e $ (const $ liftJSM $ textareaget)
+        srcText <- performEvent $ (const $ liftJSM $ textareaget) <$> e
 ```
 This event is then `fmap`ped over to give the source code as input to the interpretation.
 After interpretation it contains an output of type `Event String`which is `either` the result or an error mesage.
@@ -390,7 +391,7 @@ doneEv <- performEvent ((\v -> liftIO $ do
 
 ```
 To display the result, a placeholder is created with `holdDyn :: a -> Event a -> m (Dynamic a)`.
-The interpretation result in `doneEv` is then used to update the `Dynamic Text`.
+The interpretation result in `doneEv` is then used to update the `output :: Dynamic Text`.
 ```haskell
 output <- holdDyn "" $ fmap T.pack doneEv
 elAttr "p" ("id" =: "tResult") $ dynText output
@@ -402,7 +403,7 @@ elAttr "p" ("id" =: "tResult") $ dynText output
 - remove unnescessary javascipt, for example with the google closure compiler
 - use (Travis) CI to run tests and CD to deploy to gh-pages
 ### Interpreter
-- Write tests for the interpreter or give it a denoational semantics (would probably be a lot of work)
+- Write tests for the interpreter or give it a denotional semantics (would probably be a lot of work)
 - Catch a division by 0
 - Print out nicer error messages with line numbers
 - Implement the Access Points and Channels over sockets etc to show real-world practicality
@@ -411,7 +412,7 @@ elAttr "p" ("id" =: "tResult") $ dynText output
 - Implement basic Datatypes such as Strings, Vectors of Types etc
 As proposed in the paper:
 - recursion and recursive datatypes through recursive types
-- coinductive subtyping for the recursor <!--S.18 Gay and Hole-->
+- Coinductive subtyping for the recursor <!--S.18 Gay and Hole-->
 
 ## Personal Notes
 This project exposed me to a lot of Haskell and Functional (Reactive) Programming concepts, which was quite new for me,
@@ -422,3 +423,5 @@ The design of the interpreter and the frontend page can definitely be improved.
 ## References
 - (1) Peter Thiemann and Vasco T. Vasconcelos. 2019. Label-dependent session types. Proc. ACM Program. Lang. 4, POPL, Article 67 (January 2020), 29 pages. DOI:https://doi.org/10.1145/3371135
 - (2) Atsushi Igarashi, Peter Thiemann, Vasco T. Vasconcelos, and Philip Wadler. 2017. Gradual session types. Proc. ACM Program. Lang. 1, ICFP, Article 38 (September 2017), 28 pages. DOI:https://doi.org/10.1145/3110282
+- (3) Guy L. Steele. 1994. Building interpreters by composing monads. In Proceedings of the 21st ACM SIGPLAN-SIGACT symposium on Principles of programming languages (POPL ’94). Association for Computing Machinery, New York, NY, USA, 472–492. DOI:https://doi.org/10.1145/174675.178068
+- (4) Sheng Liang, Paul Hudak, and Mark Jones. 1995. Monad transformers and modular interpreters. In Proceedings of the 22nd ACM SIGPLAN-SIGACT symposium on Principles of programming languages (POPL ’95). Association for Computing Machinery, New York, NY, USA, 333–343. DOI:https://doi.org/10.1145/199448.199528
