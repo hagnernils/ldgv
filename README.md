@@ -23,7 +23,7 @@ to build the nix package.
 To build incrementally use the nix shell for ghcjs (website) `nix-shell -A shells.ghcjs`,
 configure cabal to use ghcjs `cabal configure --ghcjs` and build with `cabal build`. 
 
-## Test the Parser
+## Testing the Parser
 Testing the parser is done using [Hspec](https://hspec.github.io/) with automatic discovery of Specs as described in [here](https://hspec.github.io/hspec-discover.html).
 To build the tests, we can use ghc inside a nix shell
 
