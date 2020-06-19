@@ -1,1 +1,1 @@
-static/all.js -linguist-vendored
+*.js -linguist-generated
