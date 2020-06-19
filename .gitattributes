@@ -1,1 +1,2 @@
-*.js -linguist-generated
+static/*.js linguist-generated
+src/*.x linguist-language=Lex
