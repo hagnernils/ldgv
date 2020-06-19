@@ -53,7 +53,7 @@ main = mainWidgetWithHead widgetHead $ divClass "wrapper" $ do
         -- set the new text in the textarea on dropdown selection
         performEvent_ $ (\s -> liftJSM $ setSrc s) <$> (lookupExample <$> _dropdown_change d) 
         -- get the text inside the area on button click
-        srcText <- performEvent $ ffor e $ (const $ liftJSM $ textareaget)
+        srcText <- performEvent $ (const $ liftJSM $ textareaget) <$> e
    
         elAttr "textarea" ("id" =: "tOutput" <> "class" =: "output_textarea" <> "readonly" =: "readonly" <> "spellcheck" =: "false") blank
         el "div" blank
