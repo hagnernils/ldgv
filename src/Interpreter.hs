@@ -122,11 +122,10 @@ interpret' e =
       v <- interpret' e
       case v of
         (VLabel s) -> do
-          let e1 = lookup s cases
-          case e1 of
+          case lookup s cases of
             Just e' -> interpret' e'
             Nothing -> fail $ "No case found for label " ++ show v ++ " in cases " ++ show cases
-  exp@(NatRec e1 e2 i1 t1 i2 t2 e3) -> do
+  exp@(NatRec e1 e2 id1 t1 id2 t2 e3) -> do
   -- returns a function indexed over e1 (should be a variable pointing to a Nat)
   -- e1 should evaluate to the recursive variable which gets decreased each time the
   -- non-zero case is evaluated
@@ -138,9 +137,9 @@ interpret' e =
                  VInt n -> do
                         -- interpret the n-1 case i2 and add it to the env
                         -- together with n before interpreting the body e3
-                        let newexp = NatRec (Var i1) e2 i1 t1 i2 t2 e3
-                        lower <- local ((i1, VInt (n-1)):) $ interpret' newexp
-                        local (\env -> (i1, VInt n):(i2, lower):env) $ interpret' e3
+                        let newexp = NatRec (Var id1) e2 id1 t1 id2 t2 e3
+                        lower <- local ((id1, VInt (n-1)):) $ interpret' newexp
+                        local (\env -> (id1, VInt n):(id2, lower):env) $ interpret' e3
   e -> do fail $ "Expression " ++ show e ++ " not implemented"
 
 
