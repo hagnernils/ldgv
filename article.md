@@ -28,7 +28,7 @@ data Decl = DType TIdent Type  -- define a type with name
 where `TIdent` and `Ident` are alias types for `String` and `Exp` are expressions.
 
 There are also declarations only for typechecking, like type equivalency checking. They get typechecked but not
-interpreted by the backend. The parsing of text into these declarations is also [tested](readme.md/#testing).
+interpreted by the backend. The parsing of text into these declarations is also [tested](README.md/#testing-the-parser).
 
 Let's take a look at available expressions. First, we have basic types:
 ```haskell
