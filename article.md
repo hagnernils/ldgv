@@ -25,14 +25,12 @@ data Decl = DType TIdent Type  -- define a type with name
           | DFun Ident [Ident] Exp -- define a function with name, parameter list and Expression
           deriving (Show, Eq)
 ```
-where `TIdent` and `Ident` are alias types for `String`.
+where `TIdent` and `Ident` are alias types for `String` and `Exp` are expressions.
 
 There are also declarations only for typechecking, like type equivalency checking. They get typechecked but not
-interpreted by the backend.
+interpreted by the backend. The parsing of text into these declarations is also [tested](readme.md/#testing).
 
-The parsing of text into these declarations is also [tested](readme.md/#testing).
-
-Let's take a look at available Expressions. First, we have basic types:
+Let's take a look at available expressions. First, we have basic types:
 ```haskell
 data Exp = Unit
          | Int Int  -- bounded Int
@@ -40,7 +38,6 @@ data Exp = Unit
          | Var Ident  -- Variables 
          | Lab String  -- Labels, the special feature of LDST
 ```
-
 Expressions allow for variable assignment 
 ```haskell
          | Let Ident Exp Exp
@@ -83,7 +80,6 @@ and finally some recursion:
          | Rec Ident Ident Type Type Exp
   deriving (Show,Eq)
 ```
-
 ### Value representation of Expressions
 The interpreter has to represent the value of expressions it is working on. This is done by the following type:
 ```haskell
@@ -113,7 +109,8 @@ We can solve this by stacking `Reader` and `IO` in a so-called monad transformer
 ### Monad transformers
 Monad transformers behave like stacks of monads where each monad layer provides its own functionality.
 To keep track of variable bindings we use [mtl](https://github.com/haskell/mtl)s Reader.
-Instead of using a `Reader r a` with environment `r` and return type `a`, we use the constructor `ReaderT r m a` together with `runReaderT :: ReaderT r m a -> r -> m a`, which 
+Instead of using a `Reader r a` with environment `r` and return type `a`, we use the constructor `ReaderT r m a` together with
+`runReaderT :: ReaderT r m a -> r -> m a`, which 
 still allows for environment `r` and return value `a`, but this time inside a monad `m` of our choosing - here we use `IO`.
 
 We can access functionality of monads in lower layers by lifting functions into them:
