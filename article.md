@@ -22,10 +22,12 @@ in a `String` of code and outputs LDST declarations (here simplified):
 
 ```haskell
 data Decl = DType TIdent Type  -- define a type with name
+          ...
           | DFun Ident [Ident] Exp -- define a function with name, parameter list and Expression
+          ...
           deriving (Show, Eq)
 ```
-where `TIdent` and `Ident` are alias types for `String` and `Exp` are expressions.
+where `TIdent` and `Ident` are type aliases for `String` and `Exp` are expressions.
 
 There are also declarations only for typechecking, like type equivalency checking. They get typechecked but not
 interpreted by the backend. The parsing of text into these declarations is also [tested](README.md/#testing-the-parser).
@@ -76,7 +78,7 @@ case deconstruction, which evaluates to an expression according to a label
 and finally some recursion:
 ```haskell
          | Succ Exp
-         | NatRec Exp Exp Ident TIdent Ident Type Exp
+         | NatRec Exp Exp Ident Ident Type Exp
          | Rec Ident Ident Type Type Exp
   deriving (Show,Eq)
 ```
@@ -104,7 +106,8 @@ So instead of reading what was just written, a `readChan` on a Channel gets bloc
 Functions are not defined in the form of `Value -> Value`, but instead use `Value -> InterpretM`, a `Value` returned inside a monad.
 That is useful because operations on `Chan`s like `Chan.newChan`, reading and writing are of type `IO (Chan a)`, `IO ()` or `IO a`,
  so we have to somehow run them in the `IO` monad.
-We can solve this by stacking `Reader` and `IO` in a so-called monad transformer.
+The second feature we need is an environment that keeps track of variable bindings during the evaluation.
+We can solve this by stacking `Reader` (for access to variable bindings) with `IO` in a so-called monad transformer.
 
 ### Monad transformers
 Monad transformers behave like stacks of monads where each monad layer provides its own functionality.
@@ -119,9 +122,9 @@ current monad. Luckily `ReaderT` and others in the `mtl` do this: if the wrapped
 <!--Later on we will replace the inner `IO` with JSaddles `JSM` (that also implements `MonadIO`).-->
 ```haskell
 -- | the interpretation monad
-type InterpretM = R.ReaderT Env IO Value
+type InterpretM = ReaderT Env IO Value
 
--- | maps identifiers to Values of expressions and stores
+-- | maps identifiers to Values of expressions
 type Env = [EnvEntry]
 type EnvEntry = (String, Value)
 ```
@@ -178,20 +181,20 @@ to our environment in the `interpret'`ation of the inner expression `e2`.
 ```haskell
   Let s e1 e2 -> do
       v  <- interpret' e1
-      R.local ((s, v):) $ interpret' e2
+      local ((s, v):) $ interpret' e2
 ```
 The same way a pair is unpacked, this time with two values added.
 ```haskell
   LetPair s1 s2 e1 e2 -> do
       v <- interpret' e1
       case v of
-        (VPair v1 v2) -> R.local (\env -> (s1, v1):(s2, v2):env) $ interpret' e2
+        (VPair v1 v2) -> local (\env -> (s1, v1):(s2, v2):env) $ interpret' e2
 ```
 We can also have dependent pairs, where the result of e1 can be used in the interpretation of e2.
 ```haskell
   Pair mul s e1 e2 -> do
       v1 <- interpret' e1
-      v2 <- R.local ((s, v1) :) $ interpret' e2
+      v2 <- local ((s, v1) :) $ interpret' e2
       return $ VPair v1 v2
 ```
 As convenience we can access the first and second value in a pair with `fst` and `snd`.
@@ -210,32 +213,28 @@ Finally, we have the interpretation of functions. They are represented by a type
 argument `arg` and then interprets the body `e` of the function.
 
 ```haskell
-  Lam m i t e -> do
+  Lam i e -> do
                  env <- ask 
                  let f = \arg -> do
-                                 liftIO $ R.runReaderT (interpret' e) ((i, arg):env)
+                                 liftIO $ runReaderT (interpret' e) ((i, arg):env)
                  return $ VFun f
 ```
 Applying a function to a Value is now done one argument at a time.
 Functions with multiple arguments get curried to intermediate `VFun`s.
 ```haskell
   App e1 e2 -> do
+      -- the innermost App is the function with its first argument (App "funcname" val)
+      -- while outer Applications are of (App (VFun somefun) val)
       arg <- interpret' e2
-      v <- interpret' e1
-      -- check if the variable refers to a function label
+      v <- interpret' e1  -- interpret the inner function
       case v of
-          VDecl d -> do  -- if it is a declaration, we resolve the function name
-            res <- evalDFun d
-            case res of
-              (VFun f) -> do
-                f arg
-          VFun f -> do  -- if not, we can apply the function directly
-            f arg
+          VFun f -> do
+            f arg  -- return the function applied to the argument
           _ -> do
             fail $ "Trying to Apply " ++ show e2 ++ " to " ++ show e1
 ```
 ### Session Type functionality
-The backend does not implement any consitency checking for the soundness of what is send on the session type channels. <!--s, as done in the [simple-sessions](https://hackage.haskell.org/package/simple-sessions) package. -->
+The backend does not implement any consistency checking for the soundness of what is sent on the session type channels. <!--s, as done in the [simple-sessions](https://hackage.haskell.org/package/simple-sessions) package. -->
 Instead it relies on the type checker statically checking all code for violations.
 The main functionality is given by an access point, a pair of dual endpoints. When writing to (reading from) one side it is expected that the dual part in the code reads (wrote to) it and vice versa.
 To create a new access point, we use the `new` keyword, construct a channel for each direction and simply pack it into a pair.
@@ -255,7 +254,7 @@ So for `(send channelname) 42` we return a closure that writes its argument `VIn
                                         liftIO (Chan.writeChan c arg)
                                         return v
 ```
-Receiving is simply reading from a channel with `readChan`.
+Receiving is simply reading from a channel with `readChan`, lifted into `IO`.
 ```haskell
   Recv e -> do
       v <- interpret' e
@@ -274,7 +273,7 @@ To enable parallelism, we can fork off an expression (but not collect it's resul
       return VUnit
 ```
 One special feature of LDST is a type-level recursor: it allows for implementing number-indexed protocols.
-The Declaration consists of a number `e1` as well as a zero and a nonzero case that get evaluated when `e1` is 0 or > 0.
+The declaration consists of a number `e1` as well as a zero and a nonzero case that get evaluated when `e1` is 0 or > 0.
 The identifier `i1` binds the current value of `e1`, `i2` the result of the recursive interpretation.
 ```haskell
   exp@(NatRec e1 e2 i1 i2 e3) -> do
@@ -291,10 +290,22 @@ The identifier `i1` binds the current value of `e1`, `i2` the result of the recu
                  VInt n -> do
                         -- interpret the n-1 case i2 and add it to the env
                         -- together with n before interpreting the body e3
-                        let newexp = NatRec (Var i1) e2 i1 t1 i2 t2 e3
+                        let newexp = NatRec (Var i1) e2 i1 i2 e3
                         lower <- local ((i1, VInt (n-1)):) $ interpret' newexp
                         local (\env -> (i1, VInt n):(i2, lower):env) $ interpret' e3
 ```
+The defining feature is the label dependency: Depending on a label we choose a branch to execute.
+If there is no branch for a label, we fail the interpretation with an error message.
+```haskell
+  Case e cases -> do
+      v <- interpret' e
+      case v of
+        (VLabel s) -> do
+          case lookup s cases of
+            Just e' -> interpret' e'
+            Nothing -> fail $ "No case found for label " ++ show v ++ " in cases " ++ show cases
+ ```
+
 The function to evaluate references to other declarations can simply interpret when we have no free variables:
 ```haskell
 -- | interpret a DFun (Function declaration)
@@ -304,11 +315,11 @@ evalDFun decl@(DFun name [] expression) = interpret' expression
 but for functions with free variables we use the value constructor `VFun` to construct a closure for each parameter `id` in the parameter list `binds`
 (the same as for lambda binding).
 ```haskell
-evalDFun decl@(DFun name ((_, id, _):binds) e mty) = do
+evalDFun decl@(DFun name (id:binds) e) = do
                           env <- ask
-                          let inner = DFun name binds e mty
+                          let inner = DFun name binds e
                           let f = \arg -> do
-                                 liftIO $ R.runReaderT (evalDFun inner) ((id, arg):env) 
+                                 liftIO $ runReaderT (evalDFun inner) ((id, arg):env) 
                           return $ VFun f
 ```
 ## Moving to the web - compiling Haskell to Javascript
@@ -316,9 +327,10 @@ To compile the Haskell application to client-side Javascript we use reflex and
 reflex-dom, which use the ghcjs compiler together with the nix paket manager.
 The resulting static site can then be easily hosted by GitHub-Pages.
 
-Reflex follows a programming pattern called [Functional Reactive Programming](https://stackoverflow.com/a/1030631/13598798), which the [Queensland Functional Programming Lab](https://qfpl.io/posts/reflex/basics/introduction) better explains than I could.
+Reflex follows a programming pattern called [Functional Reactive Programming](https://stackoverflow.com/a/1030631/13598798), which the [Queensland Functional Programming Lab](https://qfpl.io/posts/reflex/basics/introduction) better explains than I ever could.
 
-The backend for `reflex-dom` is the `JSM` provided by [JSaddle](https://github.com/ghcjs/jsaddle), which luckily is an instance of `MonadIO` and thus provides `liftIO` which we can use to run the main `interpret`ation of ldst source code. 
+The backend for `reflex-dom` is the `JSM` provided by [JSaddle](https://github.com/ghcjs/jsaddle),
+which luckily is an instance of `MonadIO` and thus provides `liftIO` which we can use to run the main `interpret`ation of ldst source code. 
 
 We build a [basic page](https://hagnernils.github.io/ldgv) with two main text fields, one with the HTML id `tSrc` for the input
 
