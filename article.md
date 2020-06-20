@@ -29,7 +29,7 @@ data Decl = DType TIdent Type  -- define a type with name
 ```
 where `TIdent` and `Ident` are type aliases for `String` and `Exp` are expressions.
 
-There are also declarations only for typechecking, like type equivalency checking. They get typechecked but not
+There are also more declarations only for typechecking, like type equivalency checking. They get typechecked but not
 interpreted by the backend. The parsing of text into these declarations is also [tested](README.md/#testing-the-parser).
 
 Let's take a look at available expressions. First, we have basic types:
@@ -129,8 +129,8 @@ type Env = [EnvEntry]
 type EnvEntry = (String, Value)
 ```
 <!--A monad that implements the typeclass `MonadReader r m` with inner monad `m` and resource `r` allows us to `ask` for the current variable bindings and to modify them with `local`-->
-Now that we can represent the Values of Expressions and store them, we can move on to define basic interpretation.
-First, we want interpretation to be a function that maps Expressions to Values inside our transformer:
+Now that we can represent the Values of expressions and store them, we can move on to define basic interpretation.
+First, we want interpretation to be a function that maps expressions to Values inside our transformer:
 ```haskell
 -- | interpret a single Expression
 interpret' :: Exp ->  InterpretM
@@ -245,7 +245,7 @@ To create a new access point, we use the `new` keyword, construct a channel for 
     return $ VPair (VChan r w) (VChan w r)
 ```
 A `send` on a channel in LDST is a partially applied function, that later gets applied to the argument that is sent.
-So for `(send channelname) 42` we return a closure that writes its argument `VInt 42` to and then returns the channel.
+So for `(send channelname) 42` we return a closure that will write its argument `VInt 42` to the channel and then return it.
 ```haskell
   Send e -> do
       v <- interpret' e
@@ -274,25 +274,25 @@ To enable parallelism, we can fork off an expression (but not collect it's resul
 ```
 One special feature of LDST is a type-level recursor: it allows for implementing number-indexed protocols.
 The declaration consists of a number `e1` as well as a zero and a nonzero case that get evaluated when `e1` is 0 or > 0.
-The identifier `i1` binds the current value of `e1`, `i2` the result of the recursive interpretation.
+The identifier `id1` binds the current value of `e1`, `id2` the result of the recursive interpretation.
 ```haskell
-  exp@(NatRec e1 e2 i1 i2 e3) -> do
+  exp@(NatRec e1 e2 id1 id2 e3) -> do
   -- returns a function indexed over e1 (should be a variable pointing to a Nat)
   -- e1 should evaluate to the recursive variable which gets decreased each time the
   -- non-zero case is evaluated
   -- e2 is the zero case
-  -- i1 is the current value of e1
-  -- i2 is the identifier of the predecessor
+  -- id1 is the current value of e1
+  -- id2 is the identifier of the predecessor
   -- e3 is the nonzero case
          i <- interpret' e1
          case i of
                  VInt 0 -> interpret' e2
                  VInt n -> do
-                        -- interpret the n-1 case i2 and add it to the env
+                        -- interpret the n-1 case id2 and add it to the env
                         -- together with n before interpreting the body e3
-                        let newexp = NatRec (Var i1) e2 i1 i2 e3
-                        lower <- local ((i1, VInt (n-1)):) $ interpret' newexp
-                        local (\env -> (i1, VInt n):(i2, lower):env) $ interpret' e3
+                        let newexp = NatRec (Var id1) e2 id1 id2 e3
+                        lower <- local ((id1, VInt (n-1)):) $ interpret' newexp
+                        local (\env -> (id1, VInt n):(id2, lower):env) $ interpret' e3
 ```
 The defining feature is the label dependency: Depending on a label we choose a branch to execute.
 If there is no branch for a label, we fail the interpretation with an error message.
@@ -330,7 +330,7 @@ The resulting static site can then be easily hosted by GitHub-Pages.
 Reflex follows a programming pattern called [Functional Reactive Programming](https://stackoverflow.com/a/1030631/13598798), which the [Queensland Functional Programming Lab](https://qfpl.io/posts/reflex/basics/introduction) better explains than I ever could.
 
 The backend for `reflex-dom` is the `JSM` provided by [JSaddle](https://github.com/ghcjs/jsaddle),
-which luckily is an instance of `MonadIO` and thus provides `liftIO` which we can use to run the main `interpret`ation of ldst source code. 
+which luckily is an instance of `MonadIO` and thus provides `liftIO` which we can use to run the main `interpret`ation of LDST source code. 
 
 We build a [basic page](https://hagnernils.github.io/ldgv) with two main text fields, one with the HTML id `tSrc` for the input
 
@@ -357,14 +357,15 @@ There is most likely another (better) way by using a `WriterT` around the `Reade
 (and easier to understand, coming from a non-functional programming background).
 
 Upon a change of the dropdown index `_dropdown_change` of the dropdown for example files `d`, we set the source text with a simple JSaddle 
-javascript evaluation to the content of the current example file.
-Here, the applicative `<$>` functions the same as `fmap`ping the first argument over the second.
+javascript evaluation to the content of the current example file (stored in a `examplesTextMap`).
+Here, the infix `<$>` is the same as `fmap`ping the first argument over the second.
 
 ```haskell
+        let lookupExample = (\v -> maybe ("Did not find example file") id (Map.lookup v examplesTextMap))
         performEvent_ $ (\s -> liftJSM $ setSrc s) <$> (fmap lookupExample $ _dropdown_change d) 
 ```
 When the interpretation button is pressed, we create an event `e`.
-A constant function fetches the source text from the textbox through a javascript evaluation and maps over `e`,
+`const $ liftJSM $ textareaget` fetches the source text from the textbox through a Javascript evaluation and maps over `e`,
 so `srcText :: Event Text` contains the text inside the source textarea upon button click.
 ```haskell
         -- interpretation button
@@ -377,7 +378,7 @@ so `srcText :: Event Text` contains the text inside the source textarea upon but
         srcText <- performEvent $ (const $ liftJSM $ textareaget) <$> e
 ```
 This event is then `fmap`ped over to give the source code as input to the interpretation.
-After interpretation it contains an output of type `Event String`which is `either` the result or an error mesage.
+After interpretation it contains an output of type `Event String`which is `either` the result or an error message.
 ```haskell
 doneEv <- performEvent ((\v -> liftIO $ do
                                                   let s = T.unpack v
@@ -406,19 +407,21 @@ elAttr "p" ("id" =: "tResult") $ dynText output
 - Write tests for the interpreter or give it a denotional semantics (would probably be a lot of work)
 - Catch a division by 0
 - Print out nicer error messages with line numbers
+- Idiomatic Haskell Error handling (e.g. use the WriterT for error messages)
 - Implement the Access Points and Channels over sockets etc to show real-world practicality
   using the interpreter over multiple machines
 - Allow for sending of channels <!--(TODO look in LDST)-->
 - Implement basic Datatypes such as Strings, Vectors of Types etc
+
 As proposed in the paper:
-- recursion and recursive datatypes through recursive types
+- Recursion and recursive datatypes through recursive types
 - Coinductive subtyping for the recursor <!--S.18 Gay and Hole-->
 
 ## Personal Notes
 This project exposed me to a lot of Haskell and Functional (Reactive) Programming concepts, which was quite new for me,
 especially working with and debugging the monad transformer took me a long time.
 Nix and reflex were also daunting at first, but going over the project to write this made me remove and simplify a lot of code and lead to a much better understanding.
-The design of the interpreter and the frontend page can definitely be improved.
+The design of the interpreter and the frontend page can definitely be improved by learning more of the way Haskell is typically used.
 
 ## References
 - (1) Peter Thiemann and Vasco T. Vasconcelos. 2019. Label-dependent session types. Proc. ACM Program. Lang. 4, POPL, Article 67 (January 2020), 29 pages. DOI:https://doi.org/10.1145/3371135
